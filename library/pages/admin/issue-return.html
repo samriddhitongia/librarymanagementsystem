@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Issue & Return</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">Issue & Return</div>
+      <div class="page-sub">Issue books to students or record returns</div>
+    </div>
+    <div class="btn-row" style="margin-bottom:20px">
+      <button class="btn btn-accent" onclick="openIssueModal()">📤 Issue Book to Student</button>
+    </div>
+    <div class="filter-row" id="filters">
+      <button class="filter-chip active" data-s="issued"   onclick="setF(this)">Active</button>
+      <button class="filter-chip"        data-s="overdue"  onclick="setF(this)">Overdue</button>
+      <button class="filter-chip"        data-s="returned" onclick="setF(this)">Returned</button>
+      <button class="filter-chip"        data-s=""         onclick="setF(this)">All</button>
+    </div>
+    <div id="wrap"></div>
+  </main>
+</div>
+
+<!-- Issue Modal -->
+<div class="modal-bg" id="modal-issue">
+  <div class="modal">
+    <div class="modal-title">Issue Book to Student <button class="modal-close" onclick="closeModal('modal-issue')">✕</button></div>
+    <div class="form-group"><label class="form-label">Student *</label><select class="form-select" id="f-sap"></select></div>
+    <div class="form-group"><label class="form-label">Book *</label><select class="form-select" id="f-book"></select></div>
+    <div class="form-group"><label class="form-label">Loan Duration</label>
+      <select class="form-select" id="f-days">
+        <option value="7">7 days</option><option value="14" selected>14 days</option>
+        <option value="21">21 days</option><option value="30">30 days</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-issue')">Cancel</button>
+      <button class="btn btn-accent" id="issue-btn" onclick="doIssue()">📤 Issue Book</button>
+    </div>
+  </div>
+</div>
+
+<!-- Return Confirm Modal -->
+<div class="modal-bg" id="modal-return">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title">Return Book <button class="modal-close" onclick="closeModal('modal-return')">✕</button></div>
+    <div id="return-info"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-return')">Cancel</button>
+      <button class="btn btn-success" id="return-btn" onclick="doReturn()">✓ Confirm Return</button>
+    </div>
+  </div>
+</div>
+
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('admin');
+  buildTopbar(session);
+  buildSidebar('admin', 'issue-return.html');
+
+  let activeStatus = 'issued', returningId = null;
+
+  function setF(el) {
+    document.querySelectorAll('#filters .filter-chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    activeStatus = el.dataset.s;
+    loadIssues();
+  }
+
+  async function loadIssues() {
+    showLoading('wrap');
+    try {
+      const filters = activeStatus ? { status: activeStatus } : {};
+      const issues  = await Issues.getAll(filters);
+      if (!issues.length) {
+        document.getElementById('wrap').innerHTML = `<div class="empty-state"><div class="empty-state-icon">📚</div><p>No records found</p></div>`;
+        return;
+      }
+      document.getElementById('wrap').innerHTML = `
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Student</th><th>Book</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th><th>Fine</th><th>Action</th></tr></thead>
+          <tbody>${issues.map(i => `
+            <tr class="${i.status === 'overdue' ? 'row-overdue' : ''}">
+              <td class="td-muted">#${i.issue_id}</td>
+              <td><strong>${i.student_name}</strong><br><span class="td-muted" style="font-size:11px">${i.sap_id}</span></td>
+              <td>${i.book_title}</td>
+              <td class="td-muted">${fmtDate(i.issue_date)}</td>
+              <td>${fmtDate(i.due_date)}${i.days_overdue > 0 ? `<br><span style="font-size:11px;color:var(--red)">${i.days_overdue}d late</span>` : ''}</td>
+              <td class="td-muted">${fmtDate(i.return_date)}</td>
+              <td>${badge(i.status)}</td>
+              <td>${i.fine_amount ? `${badge(i.fine_paid_status)}<br><span style="font-size:12px">₹${parseFloat(i.fine_amount).toFixed(2)}</span>` : '—'}</td>
+              <td>${i.status !== 'returned'
+                ? `<button class="btn btn-success btn-sm" onclick="askReturn(${i.issue_id}, '${i.student_name}', '${i.book_title}', '${i.due_date}')">Return</button>`
+                : '<span class="td-muted">Done</span>'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    } catch(err) { showErr('wrap', err.message); }
+  }
+
+  async function openIssueModal() {
+    try {
+      const [students, books] = await Promise.all([
+        Students.getAll('', 'active'),
+        Books.getAll(),
+      ]);
+      document.getElementById('f-sap').innerHTML  = students.map(s => `<option value="${s.sap_id}">${s.username} (${s.sap_id})</option>`).join('');
+      document.getElementById('f-book').innerHTML = books.filter(b => b.available_copies > 0).map(b => `<option value="${b.book_id}">${b.title} — ${b.available_copies} avail.</option>`).join('');
+      openModal('modal-issue');
+    } catch(err) { showToast(err.message, 'error'); }
+  }
+
+  async function doIssue() {
+    const sap  = document.getElementById('f-sap').value;
+    const book = document.getElementById('f-book').value;
+    const days = +document.getElementById('f-days').value;
+    if (!sap || !book) { showToast('Select student and book', 'error'); return; }
+    const btn = document.getElementById('issue-btn');
+    btn.disabled = true; btn.textContent = 'Issuing…';
+    try {
+      await Issues.issue(sap, book, days);
+      showToast('Book issued successfully', 'success');
+      closeModal('modal-issue');
+      loadIssues();
+    } catch(err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.textContent = '📤 Issue Book'; }
+  }
+
+  function askReturn(id, studentName, bookTitle, dueDate) {
+    returningId = id;
+    const daysLate = Math.max(0, Math.floor((new Date() - new Date(dueDate)) / 864e5));
+    const fine     = daysLate * 2;
+    document.getElementById('return-info').innerHTML = `
+      <table style="width:100%;font-size:13px">
+        <tr><td style="color:var(--text3);padding:6px 0">Student</td><td style="text-align:right;font-weight:500">${studentName}</td></tr>
+        <tr><td style="color:var(--text3);padding:6px 0">Book</td><td style="text-align:right;font-weight:500">${bookTitle}</td></tr>
+        <tr><td style="color:var(--text3);padding:6px 0">Due Date</td><td style="text-align:right">${fmtDate(dueDate)}</td></tr>
+        <tr><td style="color:var(--text3);padding:6px 0">Days Overdue</td><td style="text-align:right;color:${daysLate > 0 ? 'var(--red)' : 'var(--green)'};">${daysLate > 0 ? daysLate + ' days' : 'On time'}</td></tr>
+        <tr><td style="color:var(--text3);padding:6px 0;font-weight:600">Fine</td><td style="text-align:right;font-weight:700;color:${fine > 0 ? 'var(--red)' : 'var(--green)'};">₹${fine.toFixed(2)}</td></tr>
+      </table>
+      ${fine > 0 ? `<div class="alert alert-warn" style="margin-top:12px">⚠️ A fine of ₹${fine.toFixed(2)} will be recorded (₹2/day × ${daysLate} days)</div>` : ''}`;
+    openModal('modal-return');
+  }
+
+  async function doReturn() {
+    const btn = document.getElementById('return-btn');
+    btn.disabled = true; btn.textContent = 'Processing…';
+    try {
+      const result = await Issues.returnBook(returningId);
+      showToast(result.fine_amount > 0 ? `Returned. Fine: ₹${result.fine_amount.toFixed(2)}` : 'Book returned!', 'success');
+      closeModal('modal-return');
+      loadIssues();
+    } catch(err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.textContent = '✓ Confirm Return'; }
+  }
+
+  loadIssues();
+</script>
+</body>
+</html>

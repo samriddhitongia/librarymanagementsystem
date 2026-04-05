@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — My Reviews</title>
+<link rel="stylesheet" href="../../css/style.css"/>
+<style>
+  .star-input{display:flex;flex-direction:row-reverse;gap:4px;justify-content:flex-end}
+  .star-input input{display:none}
+  .star-input label{font-size:28px;color:var(--text3);cursor:pointer;transition:color .15s}
+  .star-input label:hover,
+  .star-input label:hover ~ label,
+  .star-input input:checked ~ label{color:var(--amber)}
+  .review-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:18px 20px;margin-bottom:14px}
+  .review-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .review-book{font-family:var(--font-head);font-size:15px;font-weight:700}
+  .review-text{color:var(--text2);font-size:13.5px;line-height:1.6;margin-top:8px;font-style:italic}
+  .review-date{font-size:11px;color:var(--text3);margin-top:6px}
+</style>
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">⭐ My Reviews</div>
+      <div class="page-sub">Rate and review books you've borrowed</div>
+    </div>
+
+    <!-- Write review section -->
+    <div class="card" style="margin-bottom:24px">
+      <div class="card-title">Write a Review</div>
+      <div class="form-group">
+        <label class="form-label">Book</label>
+        <select class="form-select" id="rev-book">
+          <option value="">— Select a book you've read —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Rating</label>
+        <div class="star-input" id="star-input">
+          <input type="radio" id="s5" name="rating" value="5"/><label for="s5">★</label>
+          <input type="radio" id="s4" name="rating" value="4"/><label for="s4">★</label>
+          <input type="radio" id="s3" name="rating" value="3" checked/><label for="s3">★</label>
+          <input type="radio" id="s2" name="rating" value="2"/><label for="s2">★</label>
+          <input type="radio" id="s1" name="rating" value="1"/><label for="s1">★</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Review (optional)</label>
+        <textarea class="form-input" id="rev-text" rows="3" placeholder="Share your thoughts about the book…" style="resize:vertical"></textarea>
+      </div>
+      <button class="btn btn-accent" onclick="submitReview()">⭐ Submit Review</button>
+    </div>
+
+    <div class="card-title" style="margin-bottom:14px">My Past Reviews</div>
+    <div id="wrap"></div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student','reviews.html');
+
+  async function init() {
+    try {
+      // Load books student has borrowed for the select
+      const issues = await Issues.getAll({ sap_id: session.sap_id });
+      const seen   = new Set();
+      const unique = issues.filter(i => { if(seen.has(i.book_id)) return false; seen.add(i.book_id); return true; });
+      const sel = document.getElementById('rev-book');
+      unique.forEach(i => {
+        const o = document.createElement('option');
+        o.value = i.book_id; o.textContent = i.book_title + ' — ' + i.author;
+        sel.appendChild(o);
+      });
+    } catch(e) {}
+    loadReviews();
+  }
+
+  async function loadReviews() {
+    showLoading('wrap');
+    try {
+      const revs = await Reviews.getAll();
+      if (!revs.length) {
+        document.getElementById('wrap').innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">⭐</div>
+            <p>You haven't written any reviews yet.<br>Select a book above to get started!</p>
+          </div>`;
+        return;
+      }
+      document.getElementById('wrap').innerHTML = revs.map(r => `
+        <div class="review-card">
+          <div class="review-card-head">
+            <div class="review-book">📚 ${r.book_title}</div>
+            ${starRating(r.rating, null)}
+          </div>
+          <div style="font-size:12px;color:var(--text3)">${r.author}</div>
+          ${r.review_text ? `<div class="review-text">"${r.review_text}"</div>` : ''}
+          <div class="review-date">Reviewed on ${fmtDate(r.created_at)}</div>
+        </div>`).join('');
+    } catch(e) { showErr('wrap', e.message); }
+  }
+
+  async function submitReview() {
+    const book_id = document.getElementById('rev-book').value;
+    const rating  = document.querySelector('input[name="rating"]:checked')?.value;
+    const text    = document.getElementById('rev-text').value.trim();
+    if (!book_id) return showToast('Please select a book','warning');
+    if (!rating)  return showToast('Please select a rating','warning');
+    try {
+      await Reviews.submit(parseInt(book_id), parseInt(rating), text);
+      showToast('Review submitted! Thank you.','success');
+      document.getElementById('rev-book').value = '';
+      document.getElementById('rev-text').value = '';
+      document.getElementById('s3').checked = true;
+      loadReviews();
+    } catch(e) { showToast(e.message,'error'); }
+  }
+
+  init();
+</script>
+</body>
+</html>

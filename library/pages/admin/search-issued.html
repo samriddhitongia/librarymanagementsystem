@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Search Issued</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head"><div class="page-title">Search Issued Books</div></div>
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input id="q" placeholder="Search by student name, SAP ID or book title…" oninput="debounce()"/>
+    </div>
+    <div class="filter-row" id="sf">
+      <button class="filter-chip active" data-s=""         onclick="setF(this)">All</button>
+      <button class="filter-chip"        data-s="issued"   onclick="setF(this)">Issued</button>
+      <button class="filter-chip"        data-s="overdue"  onclick="setF(this)">Overdue</button>
+      <button class="filter-chip"        data-s="returned" onclick="setF(this)">Returned</button>
+    </div>
+    <div id="count" style="font-size:12px;color:var(--text3);margin-bottom:10px"></div>
+    <div id="wrap"></div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  requireAuth('admin');
+  buildTopbar(getSession());
+  buildSidebar('admin', 'search-issued.html');
+  let activeStatus='', timer;
+  function setF(el){ document.querySelectorAll('#sf .filter-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); activeStatus=el.dataset.s; load(); }
+  function debounce(){ clearTimeout(timer); timer=setTimeout(load,350); }
+  async function load(){
+    showLoading('wrap');
+    try{
+      const q=document.getElementById('q').value;
+      const f={}; if(activeStatus) f.status=activeStatus; if(q) f.q=q;
+      const issues=await Issues.getAll(f);
+      document.getElementById('count').textContent=`${issues.length} record${issues.length!==1?'s':''}`;
+      if(!issues.length){document.getElementById('wrap').innerHTML=`<div class="empty-state"><div class="empty-state-icon">🔍</div><p>No records found</p></div>`;return;}
+      document.getElementById('wrap').innerHTML=`
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Student</th><th>Book</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th><th>Fine</th></tr></thead>
+          <tbody>${issues.map(i=>`
+            <tr class="${i.status==='overdue'?'row-overdue':''}">
+              <td class="td-muted">#${i.issue_id}</td>
+              <td><strong>${i.student_name}</strong><br><span class="td-muted" style="font-size:11px">${i.sap_id}</span></td>
+              <td>${i.book_title}</td>
+              <td class="td-muted">${fmtDate(i.issue_date)}</td>
+              <td>${fmtDate(i.due_date)}</td>
+              <td class="td-muted">${fmtDate(i.return_date)}</td>
+              <td>${badge(i.status)}</td>
+              <td>${i.fine_amount?`${badge(i.fine_paid_status)} ₹${parseFloat(i.fine_amount).toFixed(2)}`:'—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    }catch(err){showErr('wrap',err.message);}
+  }
+  load();
+</script>
+</body></html>

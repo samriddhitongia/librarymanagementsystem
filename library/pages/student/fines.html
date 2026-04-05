@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Fine Details</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">Fine Details</div>
+      <div class="page-sub">Your fine records and payment status</div>
+    </div>
+    <div id="stats"></div>
+    <div id="wrap"></div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student', 'fines.html');
+
+  async function load() {
+    showLoading('wrap');
+    try {
+      const [fines, summary] = await Promise.all([
+        Fines.getAll(),
+        Fines.getSummary(session.sap_id),
+      ]);
+      const unpaid = parseFloat(summary.unpaid_amount || 0);
+      const paid   = parseFloat(summary.paid_amount   || 0);
+      const total  = parseFloat(summary.total_amount  || 0);
+
+      document.getElementById('stats').innerHTML = `
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">Total Fines</div><div class="stat-value blue">₹${total.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Unpaid</div><div class="stat-value ${unpaid > 0 ? 'red' : 'green'}">₹${unpaid.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Paid</div><div class="stat-value green">₹${paid.toFixed(2)}</div></div>
+        </div>
+        ${unpaid > 0 ? `<div class="alert alert-warn">⚠️ You have unpaid fines of <strong>₹${unpaid.toFixed(2)}</strong>. Please visit the library counter to clear dues.</div>` : ''}`;
+
+      if (!fines.length) {
+        document.getElementById('wrap').innerHTML = `<div class="empty-state"><div class="empty-state-icon">🎉</div><p>No fines! You're a responsible borrower.</p></div>`;
+        return;
+      }
+      document.getElementById('wrap').innerHTML = `
+        <div class="table-wrap"><table>
+          <thead><tr><th>Book</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Days Overdue</th><th>Fine</th><th>Status</th></tr></thead>
+          <tbody>${fines.map(f => `
+            <tr>
+              <td><strong>${f.book_title}</strong></td>
+              <td class="td-muted">${fmtDate(f.issue_date)}</td>
+              <td>${fmtDate(f.due_date)}</td>
+              <td class="td-muted">${fmtDate(f.return_date)}</td>
+              <td style="color:var(--red);font-weight:600">${f.days_overdue} days</td>
+              <td style="font-weight:700;color:${f.paid_status === 'unpaid' ? 'var(--red)' : 'var(--green)'}">₹${parseFloat(f.amount).toFixed(2)}</td>
+              <td>${badge(f.paid_status)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    } catch(err) { showErr('wrap', err.message); }
+  }
+  load();
+</script>
+</body>
+</html>

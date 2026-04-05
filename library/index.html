@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Login</title>
+<link rel="stylesheet" href="css/style.css"/>
+<style>
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(79,124,255,0.12) 0%,transparent 70%)}
+  .login-wrap{width:420px;animation:fadeIn .5s ease}
+  .login-logo{display:flex;align-items:center;gap:10px;margin-bottom:40px;font-family:var(--font-head);font-size:22px;font-weight:800;letter-spacing:-.5px}
+  .login-logo-icon{width:40px;height:40px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+  .login-tabs{display:flex;gap:4px;background:var(--surface);border-radius:var(--r);padding:4px;margin-bottom:28px}
+  .login-tab{flex:1;padding:9px;border:none;background:transparent;color:var(--text2);font-family:var(--font-head);font-size:13px;font-weight:600;cursor:pointer;border-radius:8px;transition:all .2s}
+  .login-tab.active{background:var(--accent);color:#fff}
+  .login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:32px;box-shadow:var(--shadow)}
+  .login-title{font-family:var(--font-head);font-size:20px;font-weight:700;margin-bottom:6px}
+  .login-sub{color:var(--text2);font-size:13px;margin-bottom:28px}
+  .login-note{margin-top:20px;padding:12px;background:rgba(79,124,255,.08);border:1px solid rgba(79,124,255,.2);border-radius:var(--r);font-size:12px;color:var(--text2);line-height:1.6}
+  .login-note span{color:var(--accent);font-weight:500}
+  .input-wrap{position:relative}
+  .input-wrap .form-input{padding-left:40px}
+  .input-ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none}
+  .toggle-pass{position:absolute;right:13px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px}
+  .btn-primary:disabled{opacity:.6;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-logo"><div class="login-logo-icon">📚</div>LibraryOS</div>
+  <div class="login-tabs">
+    <button class="login-tab active" onclick="switchTab('student')">Student</button>
+    <button class="login-tab"        onclick="switchTab('admin')">Admin</button>
+  </div>
+  <div class="login-card">
+    <div id="tab-student">
+      <div class="login-title">Student Portal</div>
+      <div class="login-sub">Sign in with your SAP ID and date of birth</div>
+      <div class="form-group">
+        <label class="form-label">SAP ID</label>
+        <div class="input-wrap"><span class="input-ico">🎓</span>
+          <input class="form-input" id="s-sap" type="text" placeholder="e.g. 500123456"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date of Birth (Password)</label>
+        <div class="input-wrap"><span class="input-ico">🗓</span>
+          <input class="form-input" id="s-dob" type="date"/>
+        </div>
+      </div>
+      <button class="btn-primary" id="s-btn" onclick="loginStudent()">Sign In →</button>
+      <div class="login-note">Demo: SAP <span>500123456</span> · DOB <span>2002-05-15</span></div>
+    </div>
+    <div id="tab-admin" style="display:none">
+      <div class="login-title">Admin Portal</div>
+      <div class="login-sub">Sign in with your admin credentials</div>
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <div class="input-wrap"><span class="input-ico">🔑</span>
+          <input class="form-input" id="a-user" type="text" placeholder="admin"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <div class="input-wrap"><span class="input-ico">🔒</span>
+          <input class="form-input" id="a-pass" type="password" placeholder="••••••••"/>
+          <button class="toggle-pass" onclick="togglePass()">👁</button>
+        </div>
+      </div>
+      <button class="btn-primary" id="a-btn" onclick="loginAdmin()">Sign In →</button>
+      <div class="login-note">Demo: Username <span>admin</span> · Password <span>admin123</span></div>
+    </div>
+  </div>
+</div>
+<script src="js/db.js"></script>
+<script>
+  // Redirect if already logged in
+  const s = getSession();
+  if (s && s.token) window.location.href = s.role==='admin' ? 'pages/admin/dashboard.html' : 'pages/student/dashboard.html';
+
+  let activeTab = 'student';
+  function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll('.login-tab').forEach((t,i) => t.classList.toggle('active', (tab==='student'?i===0:i===1)));
+    document.getElementById('tab-student').style.display = tab==='student' ? '' : 'none';
+    document.getElementById('tab-admin').style.display   = tab==='admin'   ? '' : 'none';
+  }
+
+  async function loginStudent() {
+    const sap = document.getElementById('s-sap').value.trim();
+    const dob = document.getElementById('s-dob').value;
+    if (!sap || !dob) { showToast('Enter SAP ID and Date of Birth','error'); return; }
+    const btn = document.getElementById('s-btn');
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      await Auth.loginStudent(sap, dob);
+      window.location.href = 'pages/student/dashboard.html';
+    } catch(err) {
+      showToast(err.message, 'error');
+      btn.disabled = false; btn.textContent = 'Sign In →';
+    }
+  }
+
+  async function loginAdmin() {
+    const u = document.getElementById('a-user').value.trim();
+    const p = document.getElementById('a-pass').value;
+    if (!u || !p) { showToast('Enter username and password','error'); return; }
+    const btn = document.getElementById('a-btn');
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      await Auth.loginAdmin(u, p);
+      window.location.href = 'pages/admin/dashboard.html';
+    } catch(err) {
+      showToast(err.message, 'error');
+      btn.disabled = false; btn.textContent = 'Sign In →';
+    }
+  }
+
+  function togglePass() {
+    const inp = document.getElementById('a-pass');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+  }
+  document.addEventListener('keydown', e => { if(e.key==='Enter') activeTab==='admin' ? loginAdmin() : loginStudent(); });
+</script>
+</body>
+</html>

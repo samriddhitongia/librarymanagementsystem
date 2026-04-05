@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — AI Recommendations</title>
+<link rel="stylesheet" href="../../css/style.css"/>
+<style>
+  .pref-panel {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 24px;
+    margin-bottom: 28px;
+  }
+  .pref-panel-title {
+    font-family: var(--font-head);
+    font-size: 15px;
+    font-weight: 800;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pref-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media(max-width:600px){ .pref-grid{ grid-template-columns:1fr; } }
+  .pref-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text2);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+  .pref-field select,
+  .pref-field input,
+  .pref-field textarea {
+    width: 100%;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text1);
+    font-size: 13px;
+    padding: 9px 12px;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color .2s;
+    font-family: inherit;
+  }
+  .pref-field select:focus,
+  .pref-field input:focus,
+  .pref-field textarea:focus { border-color: var(--accent); }
+  .pref-field textarea { resize: vertical; min-height: 70px; }
+  .genre-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1.5px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    user-select: none;
+    background: var(--surface3);
+    color: var(--text2);
+  }
+  .chip.selected { border-color: var(--accent); background: var(--accent); color: #fff; }
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-bottom: 2px solid var(--border);
+  }
+  .tab-btn {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    color: var(--text2);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: all .15s;
+    border-radius: 6px 6px 0 0;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-btn:hover:not(.active) { color: var(--text1); background: var(--surface2); }
+  .ai-reason {
+    font-size: 12px;
+    color: var(--text2);
+    font-style: italic;
+    margin-top: 6px;
+    line-height: 1.5;
+    border-top: 1px solid var(--border);
+    padding-top: 7px;
+  }
+  .ai-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .4px;
+    text-transform: uppercase;
+    background: linear-gradient(135deg,#4f7cff,#7c5cfc);
+    color: #fff;
+    border-radius: 20px;
+    padding: 2px 9px;
+    margin-bottom: 6px;
+  }
+  .ai-summary {
+    background: linear-gradient(135deg, rgba(79,124,255,.12), rgba(124,92,252,.12));
+    border: 1px solid rgba(79,124,255,.3);
+    border-radius: var(--r);
+    padding: 14px 18px;
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 22px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .ai-summary-icon { font-size: 20px; flex-shrink: 0; }
+  .ai-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    gap: 16px;
+    color: var(--text2);
+  }
+  .ai-pulse {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg,#4f7cff,#7c5cfc);
+    animation: pulse 1.4s ease-in-out infinite;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+  }
+  @keyframes pulse {
+    0%,100% { transform: scale(1); opacity:1; }
+    50%      { transform: scale(1.12); opacity:.8; }
+  }
+  .ai-loading-text { font-size: 15px; font-weight: 700; }
+  .ai-loading-sub  { font-size: 12px; color: var(--text3); }
+</style>
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">✨ Recommended for You</div>
+      <div class="page-sub">AI-powered picks personalised to your reading history and preferences</div>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-ai"    onclick="switchTab('ai')">🤖 AI Picks</button>
+      <button class="tab-btn"        id="tab-basic" onclick="switchTab('basic')">📊 Top Rated</button>
+    </div>
+
+    <!-- AI Tab -->
+    <div id="panel-ai">
+      <div class="pref-panel">
+        <div class="pref-panel-title">🎯 Tell AI your preferences <span style="font-size:11px;font-weight:400;color:var(--text3)">(optional — improves results)</span></div>
+
+        <div class="pref-grid">
+          <div class="pref-field">
+            <label>Current Mood / Vibe</label>
+            <select id="pref-mood">
+              <option value="">— Any —</option>
+              <option value="want something light and fun">Light &amp; Fun</option>
+              <option value="want to learn something new">Learn Something New</option>
+              <option value="want something deep and thought-provoking">Deep &amp; Thought-Provoking</option>
+              <option value="want an adventure or gripping story">Adventure / Gripping Story</option>
+              <option value="want to improve my technical skills">Improve Technical Skills</option>
+              <option value="want inspiration and motivation">Inspiration &amp; Motivation</option>
+            </select>
+          </div>
+          <div class="pref-field">
+            <label>Anything to avoid?</label>
+            <input id="pref-avoid" type="text" placeholder="e.g. heavy maths, sad endings…"/>
+          </div>
+        </div>
+
+        <div class="pref-field" style="margin-bottom:16px">
+          <label>Preferred Genres <span style="font-weight:400;color:var(--text3)">(pick any)</span></label>
+          <div class="genre-chips" id="genre-chips">
+            <span class="chip" data-genre="Computer Science">💻 Computer Science</span>
+            <span class="chip" data-genre="Mathematics">📐 Mathematics</span>
+            <span class="chip" data-genre="Fiction">📖 Fiction</span>
+            <span class="chip" data-genre="Biography">🧑 Biography</span>
+            <span class="chip" data-genre="Science">🔬 Science</span>
+            <span class="chip" data-genre="History">🏛️ History</span>
+            <span class="chip" data-genre="Management">💼 Management</span>
+            <span class="chip" data-genre="Engineering">⚙️ Engineering</span>
+          </div>
+        </div>
+
+        <div class="pref-field" style="margin-bottom:18px">
+          <label>Anything specific? <span style="font-weight:400;color:var(--text3)">(optional)</span></label>
+          <textarea id="pref-free" placeholder="e.g. 'something like Clean Code', 'a short book', 'best book for interviews'…"></textarea>
+        </div>
+
+        <button class="btn btn-primary" id="btn-get-ai" onclick="getAIRecs()" style="min-width:200px">
+          🤖 Get AI Recommendations
+        </button>
+      </div>
+
+      <div id="ai-results"></div>
+    </div>
+
+    <!-- Basic Tab -->
+    <div id="panel-basic" style="display:none">
+      <div id="basic-results"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Book Detail Modal -->
+<div class="modal-bg" id="modal-book">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-title">Book Details <button class="modal-close" onclick="closeModal('modal-book')">✕</button></div>
+    <div id="modal-book-body"></div>
+    <div id="modal-reviews" style="margin-top:16px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-book')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student','recommendations.html');
+
+  const COLORS = [
+    'linear-gradient(135deg,#4f7cff,#7c5cfc)',
+    'linear-gradient(135deg,#2dd4a0,#4f7cff)',
+    'linear-gradient(135deg,#ff5f6d,#ffb547)',
+    'linear-gradient(135deg,#ffb547,#2dd4a0)',
+    'linear-gradient(135deg,#7c5cfc,#ff5f6d)'
+  ];
+
+  // Genre chips
+  document.querySelectorAll('.chip').forEach(c =>
+    c.addEventListener('click', () => c.classList.toggle('selected'))
+  );
+  function getSelectedGenres() {
+    return [...document.querySelectorAll('.chip.selected')].map(c => c.dataset.genre);
+  }
+
+  // Tab switching
+  function switchTab(tab) {
+    document.getElementById('tab-ai').classList.toggle('active',    tab === 'ai');
+    document.getElementById('tab-basic').classList.toggle('active', tab === 'basic');
+    document.getElementById('panel-ai').style.display    = tab === 'ai'    ? '' : 'none';
+    document.getElementById('panel-basic').style.display = tab === 'basic' ? '' : 'none';
+    if (tab === 'basic') loadBasic();
+  }
+
+  // Book card
+  function bookCard(b, i, isAI) {
+    const avgNum = parseFloat(b.avg_rating) || 0;
+    return `
+      <div class="book-card" style="cursor:pointer;animation-delay:${i*40}ms" onclick="showBook(${b.book_id})">
+        <div class="book-card-cover" style="background:${COLORS[b.book_id % COLORS.length]};position:relative">
+          ${avgNum > 0 ? `<div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.4);border-radius:20px;padding:3px 8px;font-size:11px;color:#fff">★ ${avgNum.toFixed(1)}</div>` : ''}
+          ${isAI ? `<div style="position:absolute;top:8px;left:8px"><span class="ai-badge">🤖 AI</span></div>` : ''}
+        </div>
+        <div class="book-card-title">${b.title}</div>
+        <div class="book-card-author">${b.author}</div>
+        <div class="book-card-type">${b.type}</div>
+        <div class="book-card-foot">
+          ${b.available_copies > 0
+            ? `<span class="badge badge-green">${b.available_copies} avail.</span>`
+            : `<span class="badge badge-red">Unavailable</span>`}
+          ${starRating(b.avg_rating, b.rating_count)}
+        </div>
+        ${isAI && b.ai_reason ? `<div class="ai-reason">💡 ${b.ai_reason}</div>` : ''}
+      </div>`;
+  }
+
+  // AI Recommendations
+  async function getAIRecs() {
+    const btn = document.getElementById('btn-get-ai');
+    btn.disabled = true;
+    btn.textContent = '⏳ Thinking…';
+
+    document.getElementById('ai-results').innerHTML = `
+      <div class="ai-loading">
+        <div class="ai-pulse">🤖</div>
+        <div class="ai-loading-text">AI is analysing your reading profile…</div>
+        <div class="ai-loading-sub">Reviewing your history, preferences and library catalogue</div>
+      </div>`;
+
+    const preferences = {
+      mood:     document.getElementById('pref-mood').value,
+      genres:   getSelectedGenres(),
+      avoid:    document.getElementById('pref-avoid').value.trim(),
+      freeText: document.getElementById('pref-free').value.trim(),
+    };
+
+    try {
+      const data = await Recommendations.getAI(preferences);
+      const { recommendations, summary } = data;
+
+      if (!recommendations || !recommendations.length) {
+        document.getElementById('ai-results').innerHTML =
+          `<div class="empty-state"><div class="empty-state-icon">🤖</div><p>AI couldn't find matching books. Try adjusting your preferences.</p></div>`;
+        return;
+      }
+
+      document.getElementById('ai-results').innerHTML = `
+        ${summary ? `<div class="ai-summary"><span class="ai-summary-icon">🧠</span><span><strong>Why these books?</strong> ${summary}</span></div>` : ''}
+        <div class="book-grid">${recommendations.map((b, i) => bookCard(b, i, true)).join('')}</div>`;
+    } catch(e) {
+      document.getElementById('ai-results').innerHTML =
+        `<div class="alert alert-error">❌ ${e.message}<br><small>Make sure OPENAI_API_KEY is set in your .env file</small></div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🤖 Get AI Recommendations';
+    }
+  }
+
+  // Basic top-rated
+  let basicLoaded = false;
+  async function loadBasic() {
+    if (basicLoaded) return;
+    basicLoaded = true;
+    showLoading('basic-results');
+    try {
+      const books = await Recommendations.get();
+      if (!books.length) {
+        document.getElementById('basic-results').innerHTML =
+          `<div class="empty-state"><div class="empty-state-icon">📚</div><p>No recommendations yet. Borrow some books first!</p></div>`;
+        return;
+      }
+      document.getElementById('basic-results').innerHTML =
+        `<div class="book-grid">${books.map((b, i) => bookCard(b, i, false)).join('')}</div>`;
+    } catch(e) { showErr('basic-results', e.message); }
+  }
+
+  // Book detail modal
+  async function showBook(id) {
+    openModal('modal-book');
+    document.getElementById('modal-book-body').innerHTML =
+      '<div style="text-align:center;padding:20px">Loading…</div>';
+    document.getElementById('modal-reviews').innerHTML = '';
+    try {
+      const [book, revs] = await Promise.all([Books.getOne(id), Reviews.forBook(id)]);
+      document.getElementById('modal-book-body').innerHTML = `
+        <div style="font-family:var(--font-head);font-size:18px;font-weight:800;margin-bottom:6px">${book.title}</div>
+        <div style="color:var(--text2);font-size:13px;margin-bottom:10px">by ${book.author}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <span class="badge badge-blue">${book.type}</span>
+          ${book.published_year ? `<span class="badge" style="background:var(--surface3);color:var(--text2)">${book.published_year}</span>` : ''}
+          ${book.available_copies > 0
+            ? `<span class="badge badge-green">${book.available_copies}/${book.total_copies} available</span>`
+            : `<span class="badge badge-red">Unavailable</span>`}
+        </div>
+        ${book.isbn ? `<div style="font-size:11px;color:var(--text3)">ISBN: ${book.isbn}</div>` : ''}
+        <div style="margin-top:10px">${starRating(book.avg_rating, book.rating_count)}</div>`;
+      if (revs.length) {
+        document.getElementById('modal-reviews').innerHTML = `
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px;border-top:1px solid var(--border);padding-top:12px">Reviews (${revs.length})</div>
+          ${revs.map(r => `
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px;font-size:13px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <strong>${r.student_name}</strong>
+                <span style="color:var(--amber)">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span>
+              </div>
+              ${r.review_text ? `<div style="color:var(--text2);font-style:italic">"${r.review_text}"</div>` : ''}
+              <div style="font-size:10px;color:var(--text3);margin-top:4px">${fmtDate(r.created_at)}</div>
+            </div>`).join('')}`;
+      }
+    } catch(e) {
+      document.getElementById('modal-book-body').innerHTML =
+        `<div class="alert alert-error">${e.message}</div>`;
+    }
+  }
+</script>
+</body>
+</html>

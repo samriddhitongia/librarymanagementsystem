@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Dashboard</title>
+<link rel="stylesheet" href="../../css/style.css"/>
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content" id="main"><div id="wrap"></div></main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student','dashboard.html');
+
+  async function load() {
+    showLoading('wrap');
+    try {
+      const [issues, fineSum, requests, reservations] = await Promise.all([
+        Issues.getAll({ sap_id: session.sap_id }),
+        Fines.getSummary(session.sap_id),
+        Requests.getAll(),
+        Reservations.getAll('active'),
+      ]);
+      const active  = issues.filter(i => i.status !== 'returned');
+      const overdue = issues.filter(i => i.status === 'overdue');
+      const pendingReqs = requests.filter(r => r.status === 'pending');
+
+      document.getElementById('wrap').innerHTML = `
+        <div class="page-head">
+          <div class="page-title">Welcome back, ${session.username.split(' ')[0]} 👋</div>
+          <div class="page-sub">${session.department || ''}</div>
+        </div>
+        ${overdue.length ? `<div class="alert alert-warn">⚠️ You have <strong>${overdue.length}</strong> overdue book${overdue.length>1?'s':''}. Please return them.</div>` : ''}
+        ${fineSum.unpaid_amount > 0 ? `<div class="alert alert-error">💰 Outstanding fine of <strong>₹${parseFloat(fineSum.unpaid_amount).toFixed(2)}</strong>. Contact the librarian.</div>` : ''}
+        ${reservations.length ? `<div class="alert" style="background:rgba(79,124,255,.1);border-color:var(--accent);color:var(--accent)">📦 You have <strong>${reservations.length}</strong> book${reservations.length>1?'s':''} reserved and waiting for pickup! <a href="reservations.html" style="color:var(--accent);font-weight:700;text-decoration:underline">View →</a></div>` : ''}
+
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">Books with You</div><div class="stat-value blue">${active.length}</div></div>
+          <div class="stat-card"><div class="stat-label">Overdue</div><div class="stat-value ${overdue.length?'red':'green'}">${overdue.length}</div></div>
+          <div class="stat-card"><div class="stat-label">Reservations</div><div class="stat-value ${reservations.length?'blue':'green'}">${reservations.length}</div></div>
+          <div class="stat-card"><div class="stat-label">Unpaid Fines</div><div class="stat-value ${fineSum.unpaid_amount>0?'red':'green'}">₹${parseFloat(fineSum.unpaid_amount||0).toFixed(2)}</div></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">📖 Currently Issued <a href="my-issues.html" class="btn btn-ghost btn-sm">View All</a></div>
+            ${active.length===0 ? `<div class="empty-state"><div class="empty-state-icon">📭</div><p>No books currently issued</p></div>` : `
+            <div class="table-wrap"><table>
+              <thead><tr><th>Book</th><th>Due Date</th><th>Status</th></tr></thead>
+              <tbody>${active.map(i=>`<tr class="${i.status==='overdue'?'row-overdue':''}">
+                <td><strong>${i.book_title}</strong><br><span class="td-muted" style="font-size:11px">${i.author}</span></td>
+                <td class="td-muted">${fmtDate(i.due_date)}</td>
+                <td>${badge(i.status)}</td>
+              </tr>`).join('')}</tbody>
+            </table></div>`}
+          </div>
+          <div class="card">
+            <div class="card-title">🔔 My Requests <a href="requests.html" class="btn btn-ghost btn-sm">View All</a></div>
+            ${requests.length===0 ? `<div class="empty-state"><div class="empty-state-icon">🔔</div><p>No requests yet</p></div>` : `
+            <div class="table-wrap"><table>
+              <thead><tr><th>Book</th><th>Status</th></tr></thead>
+              <tbody>${requests.slice(0,5).map(r=>`<tr><td>${r.book_title}</td><td>${badge(r.status)}</td></tr>`).join('')}</tbody>
+            </table></div>`}
+          </div>
+        </div>
+        <div id="recs-wrap"></div>
+        <div style="text-align:center;margin-top:8px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <a href="books.html" class="btn btn-accent">📚 Browse All Books</a>
+          <a href="chatbot.html" class="btn btn-ghost">🤖 Ask the Assistant</a>
+        </div>`;
+
+      // Load recommendations asynchronously
+      try {
+        const recs = await Recommendations.get();
+        if (recs.length) {
+          const COLORS=['linear-gradient(135deg,#4f7cff,#7c5cfc)','linear-gradient(135deg,#2dd4a0,#4f7cff)','linear-gradient(135deg,#ff5f6d,#ffb547)','linear-gradient(135deg,#ffb547,#2dd4a0)','linear-gradient(135deg,#7c5cfc,#ff5f6d)'];
+          document.getElementById('recs-wrap').innerHTML = `
+            <div class="card" style="margin-bottom:20px">
+              <div class="card-title">✨ Recommended for You <a href="recommendations.html" class="btn btn-ghost btn-sm">See All</a></div>
+              <div class="book-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">
+                ${recs.slice(0,4).map(b=>`
+                  <div class="book-card" style="cursor:pointer" onclick="window.location='books.html'">
+                    <div class="book-card-cover" style="background:${COLORS[b.book_id%COLORS.length]};height:80px"></div>
+                    <div class="book-card-title" style="font-size:12px">${b.title}</div>
+                    <div class="book-card-author" style="font-size:11px">${b.author}</div>
+                    <div style="font-size:10px;color:var(--amber);margin-top:4px">${b.avg_rating>0?'★'.repeat(Math.round(b.avg_rating))+'☆'.repeat(5-Math.round(b.avg_rating)):''}</div>
+                    <div class="book-card-foot"><span class="badge ${b.available_copies>0?'badge-green':'badge-red'}" style="font-size:10px">${b.available_copies>0?b.available_copies+' avail.':'Unavail.'}</span></div>
+                  </div>`).join('')}
+              </div>
+            </div>`;
+        }
+      } catch(_) {}
+    } catch(err) {
+      showErr('wrap', err.message);
+    }
+  }
+  load();
+</script>
+</body>
+</html>

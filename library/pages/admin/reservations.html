@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Reservations</title>
+<link rel="stylesheet" href="../../css/style.css"/>
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">🔖 Book Reservations</div>
+      <div class="page-sub">24-hour pickup locks for students</div>
+    </div>
+    <div class="btn-row" style="margin-bottom:20px;display:flex;gap:10px">
+      <button class="btn btn-ghost" onclick="expireOld()">⏰ Expire Overdue Reservations</button>
+      <button class="btn btn-ghost" onclick="Notifications.sendReminders().then(r=>showToast(r.message,'success')).catch(e=>showToast(e.message,'error'))">📧 Send Due Reminders</button>
+    </div>
+    <div class="filter-row" id="rf">
+      <button class="filter-chip active" data-s="" onclick="setF(this)">All</button>
+      <button class="filter-chip" data-s="active" onclick="setF(this)">Active</button>
+      <button class="filter-chip" data-s="collected" onclick="setF(this)">Collected</button>
+      <button class="filter-chip" data-s="expired" onclick="setF(this)">Expired</button>
+    </div>
+    <div id="wrap"></div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  requireAuth('admin');
+  buildTopbar(getSession());
+  buildSidebar('admin','reservations.html');
+  let activeStatus='';
+
+  function setF(el){ document.querySelectorAll('#rf .filter-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); activeStatus=el.dataset.s; load(); }
+
+  async function expireOld() {
+    try {
+      const r = await Reservations.expireOld();
+      showToast(r.message,'success');
+      load();
+    } catch(e) { showToast(e.message,'error'); }
+  }
+
+  async function load() {
+    showLoading('wrap');
+    try {
+      const res = await Reservations.getAll(activeStatus);
+      if (!res.length) { document.getElementById('wrap').innerHTML=`<div class="empty-state"><div class="empty-state-icon">🔖</div><p>No reservations found</p></div>`; return; }
+      document.getElementById('wrap').innerHTML = `
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Student</th><th>Book</th><th>Reserved At</th><th>Expires At</th><th>Status</th><th>Time Left</th></tr></thead>
+          <tbody>${res.map(r => {
+            const expires = new Date(r.expires_at);
+            const msLeft  = expires - Date.now();
+            const hoursLeft = Math.max(0,Math.floor(msLeft/3600000));
+            const minsLeft  = Math.max(0,Math.floor((msLeft%3600000)/60000));
+            const timerHtml = r.status==='active' && msLeft>0
+              ? `<span style="color:${hoursLeft<3?'var(--red)':'var(--amber)'};font-weight:700">${hoursLeft}h ${minsLeft}m</span>`
+              : '—';
+            return `<tr>
+              <td class="td-muted">#${r.reservation_id}</td>
+              <td><strong>${r.student_name}</strong><br><span class="td-muted" style="font-size:11px">${r.sap_id}</span></td>
+              <td>${r.book_title}</td>
+              <td class="td-muted">${fmtDate(r.reserved_at)}</td>
+              <td class="td-muted">${expires.toLocaleString()}</td>
+              <td>${badge(r.status)}</td>
+              <td>${timerHtml}</td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table></div>`;
+    } catch(e) { showErr('wrap',e.message); }
+  }
+  load();
+</script>
+</body>
+</html>

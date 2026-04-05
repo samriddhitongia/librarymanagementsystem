@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — My Reservations</title>
+<link rel="stylesheet" href="../../css/style.css"/>
+<style>
+  .res-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:18px 20px;margin-bottom:14px;display:flex;gap:16px;align-items:flex-start}
+  .res-icon{width:44px;height:44px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+  .res-icon.active{background:rgba(79,124,255,.15)}
+  .res-icon.collected{background:rgba(45,212,160,.15)}
+  .res-icon.expired{background:rgba(255,95,109,.1)}
+  .res-body{flex:1}
+  .res-title{font-family:var(--font-head);font-size:15px;font-weight:700;margin-bottom:4px}
+  .res-meta{font-size:12px;color:var(--text2);line-height:1.6}
+  .res-timer{font-size:13px;font-weight:700;margin-top:8px}
+  .res-timer.urgent{color:var(--red);animation:pulse 2s infinite}
+  .res-timer.ok{color:var(--amber)}
+</style>
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">🔖 My Reservations</div>
+      <div class="page-sub">Books reserved and locked for you — collect within 24 hours</div>
+    </div>
+    <div class="alert alert-info" style="margin-bottom:20px">
+      ℹ️ When a book you requested becomes available, it is <strong>reserved for you for 24 hours</strong>. Visit the library counter with your ID card to collect it.
+    </div>
+    <div id="wrap"></div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student','reservations.html');
+
+  async function load() {
+    showLoading('wrap');
+    try {
+      const res = await Reservations.getAll();
+      if (!res.length) {
+        document.getElementById('wrap').innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">🔖</div>
+            <p>No reservations yet.<br>Request an unavailable book and it will be reserved when a copy is returned.</p>
+          </div>`;
+        return;
+      }
+      document.getElementById('wrap').innerHTML = res.map(r => {
+        const isActive    = r.status === 'active';
+        const expires     = new Date(r.expires_at);
+        const now         = new Date();
+        const msLeft      = expires - now;
+        const hoursLeft   = Math.max(0, Math.floor(msLeft / 3600000));
+        const minsLeft    = Math.max(0, Math.floor((msLeft % 3600000) / 60000));
+        const iconClass   = r.status === 'collected' ? 'collected' : r.status === 'active' ? 'active' : 'expired';
+        const iconEmoji   = r.status === 'collected' ? '✅' : r.status === 'active' ? '📦' : '⏰';
+        return `
+          <div class="res-card">
+            <div class="res-icon ${iconClass}">${iconEmoji}</div>
+            <div class="res-body">
+              <div class="res-title">${r.book_title}</div>
+              <div class="res-meta">
+                by ${r.author}<br>
+                Reserved on: ${fmtDate(r.reserved_at)}<br>
+                ${r.status === 'active' ? `Expires: ${expires.toLocaleString()}` : ''}
+                ${r.status === 'collected' ? `Collected: ${fmtDate(r.collected_at)}` : ''}
+                ${r.status === 'expired' ? `Expired on: ${expires.toLocaleString()}` : ''}
+              </div>
+              ${isActive && msLeft > 0 ? `
+                <div class="res-timer ${hoursLeft < 3 ? 'urgent' : 'ok'}">
+                  ⏱ ${hoursLeft}h ${minsLeft}m remaining
+                </div>` : ''}
+              ${isActive ? `<div class="alert alert-warn" style="margin-top:10px;padding:8px 12px;font-size:12px">
+                ⚠️ Collect this book at the library counter before the timer expires!
+              </div>` : ''}
+            </div>
+            <div>${badge(r.status)}</div>
+          </div>`;
+      }).join('');
+    } catch(e) { showErr('wrap', e.message); }
+  }
+
+  load();
+  // Refresh every minute to keep timers roughly current
+  setInterval(load, 60000);
+</script>
+</body>
+</html>

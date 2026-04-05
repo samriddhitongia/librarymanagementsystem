@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Browse Books</title>
+<link rel="stylesheet" href="../../css/style.css"/>
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">Browse Books</div>
+      <div class="page-sub">Search and discover books from the library catalog</div>
+    </div>
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input id="q" placeholder="Search by title, author or genre…" oninput="debounceSearch()"/>
+    </div>
+    <div class="filter-row" id="type-filters"></div>
+    <div id="count" style="font-size:12px;color:var(--text3);margin-bottom:12px"></div>
+    <div class="book-grid" id="book-grid"><div style="text-align:center;padding:48px;color:var(--text3)">Loading books…</div></div>
+  </main>
+</div>
+
+<div class="modal-bg" id="modal-req">
+  <div class="modal">
+    <div class="modal-title">Request Book <button class="modal-close" onclick="closeModal('modal-req')">✕</button></div>
+    <p style="color:var(--text2);font-size:14px;line-height:1.6"><strong id="req-name"></strong> is currently unavailable. Place a request and the librarian will notify you when a copy is available.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-req')">Cancel</button>
+      <button class="btn btn-accent" onclick="confirmReq()">🔔 Place Request</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="modal-reserve">
+  <div class="modal">
+    <div class="modal-title">Reserve Book <button class="modal-close" onclick="closeModal('modal-reserve')">✕</button></div>
+    <p style="color:var(--text2);font-size:14px;line-height:1.6"><strong id="reserve-name"></strong> is available now. Reserving it will lock a copy for <strong>24 hours</strong> while you come to collect it.</p>
+    <div class="alert alert-info" style="margin-top:12px">📧 You will receive an email confirmation with pickup deadline.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-reserve')">Cancel</button>
+      <button class="btn btn-accent" onclick="confirmReserve()">🔖 Reserve Now</button>
+    </div>
+  </div>
+</div>
+
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student','books.html');
+
+  let allBooks = [], myPending = [], activeType = 'All', searchTimer;
+
+  async function init() {
+    try {
+      [allBooks, myPending] = await Promise.all([
+        Books.getAll(),
+        Requests.getAll('pending'),
+      ]);
+      // Build type filters
+      const types = ['All', ...[...new Set(allBooks.map(b=>b.type))]];
+      document.getElementById('type-filters').innerHTML = types.map(t=>
+        `<button class="filter-chip${t==='All'?' active':''}" data-type="${t}" onclick="setType(this)">${t}</button>`
+      ).join('');
+      renderBooks();
+    } catch(err) { document.getElementById('book-grid').innerHTML=`<div class="alert alert-error" style="grid-column:1/-1">❌ ${err.message}</div>`; }
+  }
+
+  function setType(el) {
+    document.querySelectorAll('#type-filters .filter-chip').forEach(c=>c.classList.remove('active'));
+    el.classList.add('active'); activeType=el.dataset.type; renderBooks();
+  }
+
+  function debounceSearch() { clearTimeout(searchTimer); searchTimer=setTimeout(renderBooks,300); }
+
+  function renderBooks() {
+    const q = document.getElementById('q').value.toLowerCase();
+    let res = allBooks.filter(b =>
+      (!q || b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q) || b.type.toLowerCase().includes(q)) &&
+      (activeType==='All' || b.type===activeType)
+    );
+    document.getElementById('count').textContent = `${res.length} book${res.length!==1?'s':''} found`;
+    const COLORS=['linear-gradient(135deg,#4f7cff,#7c5cfc)','linear-gradient(135deg,#2dd4a0,#4f7cff)','linear-gradient(135deg,#ff5f6d,#ffb547)','linear-gradient(135deg,#ffb547,#2dd4a0)','linear-gradient(135deg,#7c5cfc,#ff5f6d)'];
+    const pendingIds = myPending.map(r=>r.book_id);
+    document.getElementById('book-grid').innerHTML = !res.length
+      ? `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">🔍</div><p>No books found</p></div>`
+      : res.map((b,i)=>`
+        <div class="book-card" style="animation-delay:${i*30}ms">
+          <div class="book-card-cover" style="background:${COLORS[b.book_id%COLORS.length]}"></div>
+          <div class="book-card-title">${b.title}</div>
+          <div class="book-card-author">${b.author}</div>
+          <div class="book-card-type">${b.type}${b.published_year?' · '+b.published_year:''}</div>
+          <div style="font-size:11px;margin:2px 0 6px;color:var(--amber)">${b.avg_rating>0?`${'★'.repeat(Math.round(b.avg_rating))}${'☆'.repeat(5-Math.round(b.avg_rating))} <span style="color:var(--text3)">(${b.rating_count})</span>`:'<span style="color:var(--text3)">No reviews</span>'}</div>
+          <div class="book-card-foot">
+            ${b.available_copies>0
+              ? `<span class="badge badge-green">${b.available_copies}/${b.total_copies}</span>
+                 <button class="btn btn-accent btn-sm" onclick="askReserve(${b.book_id},'${b.title.replace(/'/g,"\\'")}')">🔖 Reserve</button>`
+              : pendingIds.includes(b.book_id)
+                ? `<span class="badge badge-amber">Requested</span><span style="font-size:11px;color:var(--text3)">Pending</span>`
+                : `<span class="badge badge-red">Unavailable</span>
+                   <button class="btn btn-ghost btn-sm" onclick="askReq(${b.book_id},'${b.title.replace(/'/g,"\\'")}')">🔔 Request</button>`}
+          </div>
+        </div>`).join('');
+  }
+
+  let pendingBookId = null;
+  function askReq(id, title)      { pendingBookId=id; document.getElementById('req-name').textContent=title; openModal('modal-req'); }
+  function askReserve(id, title)  { pendingBookId=id; document.getElementById('reserve-name').textContent=title; openModal('modal-reserve'); }
+
+  async function confirmReq() {
+    try {
+      const r = await Requests.place(pendingBookId);
+      showToast(r.message || 'Request placed!','success');
+      closeModal('modal-req');
+      myPending = await Requests.getAll('pending');
+      renderBooks();
+    } catch(err) { showToast(err.message,'error'); }
+  }
+
+  async function confirmReserve() {
+    try {
+      const r = await Requests.place(pendingBookId);
+      showToast(r.message || 'Book reserved! Collect within 24 hours.','success');
+      closeModal('modal-reserve');
+      [allBooks, myPending] = await Promise.all([Books.getAll(), Requests.getAll('pending')]);
+      renderBooks();
+    } catch(err) { showToast(err.message,'error'); }
+  }
+
+  init();
+</script>
+</body>
+</html>

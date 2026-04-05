@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — My Issued Books</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">My Issued Books</div>
+      <div class="page-sub">Your complete borrowing history</div>
+    </div>
+    <div class="filter-row" id="sf">
+      <button class="filter-chip active" data-s="all"      onclick="setFilter(this)">All</button>
+      <button class="filter-chip"        data-s="issued"   onclick="setFilter(this)">Active</button>
+      <button class="filter-chip"        data-s="overdue"  onclick="setFilter(this)">Overdue</button>
+      <button class="filter-chip"        data-s="returned" onclick="setFilter(this)">Returned</button>
+    </div>
+    <div id="wrap"></div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student', 'my-issues.html');
+
+  let allIssues = [];
+  let activeFilter = 'all';
+
+  function setFilter(el) {
+    document.querySelectorAll('#sf .filter-chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    activeFilter = el.dataset.s;
+    render();
+  }
+
+  function render() {
+    const data = activeFilter === 'all' ? allIssues : allIssues.filter(i => i.status === activeFilter);
+    if (!data.length) {
+      document.getElementById('wrap').innerHTML = `<div class="empty-state"><div class="empty-state-icon">📚</div><p>No records found</p></div>`;
+      return;
+    }
+    document.getElementById('wrap').innerHTML = `
+      <div class="table-wrap"><table>
+        <thead><tr><th>Book</th><th>Author</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th><th>Fine</th></tr></thead>
+        <tbody>${data.map(i => `
+          <tr class="${i.status === 'overdue' ? 'row-overdue' : ''}">
+            <td><strong>${i.book_title}</strong></td>
+            <td class="td-muted">${i.author}</td>
+            <td class="td-muted">${fmtDate(i.issue_date)}</td>
+            <td>${fmtDate(i.due_date)}${i.days_overdue > 0 ? `<br><span style="font-size:11px;color:var(--red)">${i.days_overdue}d late</span>` : ''}</td>
+            <td class="td-muted">${fmtDate(i.return_date)}</td>
+            <td>${badge(i.status)}</td>
+            <td>${i.fine_amount ? `${badge(i.fine_paid_status)} ₹${parseFloat(i.fine_amount).toFixed(2)}` : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+  }
+
+  async function load() {
+    showLoading('wrap');
+    try {
+      allIssues = await Issues.getAll({ sap_id: session.sap_id });
+      render();
+    } catch(err) { showErr('wrap', err.message); }
+  }
+  load();
+</script>
+</body>
+</html>

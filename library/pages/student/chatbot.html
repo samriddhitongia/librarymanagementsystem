@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Book Assistant</title>
+<link rel="stylesheet" href="../../css/style.css"/>
+<style>
+  .chat-wrap{max-width:700px;margin:0 auto;display:flex;flex-direction:column;height:calc(100vh - 58px - 80px)}
+  .chat-messages{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:4px 0 16px}
+  .msg{display:flex;gap:10px;animation:fadeIn .25s ease}
+  .msg.user{flex-direction:row-reverse}
+  .msg-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+  .msg.bot  .msg-avatar{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+  .msg.user .msg-avatar{background:var(--surface3);color:var(--text2)}
+  .msg-bubble{max-width:80%;padding:12px 16px;border-radius:14px;font-size:13.5px;line-height:1.6}
+  .msg.bot  .msg-bubble{background:var(--surface2);border:1px solid var(--border);border-bottom-left-radius:4px}
+  .msg.user .msg-bubble{background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+  .msg-time{font-size:10px;color:var(--text3);margin-top:4px}
+  .chat-input-row{display:flex;gap:10px;padding:16px 0 0;border-top:1px solid var(--border)}
+  .chat-input{flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r2);padding:12px 16px;color:var(--text);font-family:var(--font-body);font-size:14px;outline:none;transition:border .2s}
+  .chat-input:focus{border-color:var(--accent)}
+  .chat-send{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:var(--r);padding:0 18px;color:#fff;font-size:16px;cursor:pointer;transition:opacity .2s}
+  .chat-send:hover{opacity:.85}
+  .chat-send:disabled{opacity:.4;cursor:not-allowed}
+  .typing{display:flex;align-items:center;gap:5px;padding:8px 12px}
+  .typing span{width:6px;height:6px;background:var(--text3);border-radius:50%;animation:pulse 1s infinite}
+  .typing span:nth-child(2){animation-delay:.2s}
+  .typing span:nth-child(3){animation-delay:.4s}
+  .book-chips{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+  .book-chip{background:var(--surface3);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;font-size:12.5px;cursor:pointer;transition:all .15s}
+  .book-chip:hover{border-color:var(--accent);background:rgba(79,124,255,.08)}
+  .book-chip-title{font-weight:600;color:var(--text)}
+  .book-chip-meta{color:var(--text3);font-size:11px;margin-top:2px}
+  .book-chip-avail{float:right;font-size:11px;font-weight:700}
+  .quick-btns{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .quick-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:20px;padding:6px 14px;font-size:12px;color:var(--text2);cursor:pointer;transition:all .15s;font-family:var(--font-body)}
+  .quick-btn:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content" style="display:flex;flex-direction:column;padding:20px 28px">
+    <div class="page-head" style="margin-bottom:16px">
+      <div class="page-title">📖 Book Assistant</div>
+      <div class="page-sub">Search books, check your dues, get recommendations and more</div>
+    </div>
+    <div class="quick-btns" id="quick-btns">
+      <button class="quick-btn" onclick="quickSend('What books do I currently have?')">📖 My Issues</button>
+      <button class="quick-btn" onclick="quickSend('Do I have any fines?')">💰 My Fines</button>
+      <button class="quick-btn" onclick="quickSend('When is my book due?')">📅 Due Dates</button>
+      <button class="quick-btn" onclick="quickSend('Recommend me a book')">⭐ Recommendations</button>
+      <button class="quick-btn" onclick="quickSend('What are the library hours?')">ℹ️ Library Info</button>
+    </div>
+    <div class="chat-wrap">
+      <div class="chat-messages" id="messages"></div>
+      <div class="chat-input-row">
+        <input class="chat-input" id="chat-in" placeholder="Ask me anything about the library…" onkeydown="if(event.key==='Enter')sendMsg()"/>
+        <button class="chat-send" id="send-btn" onclick="sendMsg()">➤</button>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student','chatbot.html');
+
+  const sessionId = 'chat_' + Math.random().toString(36).slice(2);
+  const msgBox    = document.getElementById('messages');
+
+  function addMsg(html, role='bot', time=true) {
+    const initials = role === 'user' ? getInitials(session.username) : '🤖';
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    div.innerHTML = `
+      <div class="msg-avatar">${initials}</div>
+      <div>
+        <div class="msg-bubble">${html}</div>
+        ${time ? `<div class="msg-time">${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>` : ''}
+      </div>`;
+    msgBox.appendChild(div);
+    msgBox.scrollTop = msgBox.scrollHeight;
+    return div;
+  }
+
+  function addTyping() {
+    const d = document.createElement('div');
+    d.className = 'msg bot'; d.id = 'typing';
+    d.innerHTML = `<div class="msg-avatar">🤖</div><div class="msg-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+    msgBox.appendChild(d); msgBox.scrollTop = msgBox.scrollHeight;
+  }
+
+  function renderBooks(books) {
+    return `<div class="book-chips">${books.map(b=>`
+      <div class="book-chip" onclick="quickSend('find ${b.title}')">
+        <span class="book-chip-avail" style="color:${b.available_copies>0?'var(--green)':'var(--red)'}">${b.available_copies>0?b.available_copies+' avail.':'Unavail.'}</span>
+        <div class="book-chip-title">${b.title}</div>
+        <div class="book-chip-meta">${b.author} · ${b.type}${b.avg_rating>0?' · '+starRating(b.avg_rating,b.rating_count):''}</div>
+      </div>`).join('')}</div>`;
+  }
+
+  async function sendMsg() {
+    const inp = document.getElementById('chat-in');
+    const msg = inp.value.trim();
+    if (!msg) return;
+    inp.value = '';
+    document.getElementById('send-btn').disabled = true;
+
+    addMsg(msg, 'user');
+    addTyping();
+
+    try {
+      const r = await Chatbot.send(msg, sessionId);
+      document.getElementById('typing')?.remove();
+      let html = r.response;
+      if (r.data?.type === 'books' && r.data.books.length) {
+        html += renderBooks(r.data.books);
+      } else if (r.data?.type === 'issues' && r.data.issues.length) {
+        html += `<div class="book-chips">${r.data.issues.map(i=>`
+          <div class="book-chip">
+            <span class="book-chip-avail" style="color:${i.status==='overdue'?'var(--red)':'var(--amber)'}">${badge(i.status)}</span>
+            <div class="book-chip-title">${i.title}</div>
+            <div class="book-chip-meta">Due: ${fmtDate(i.due_date)}</div>
+          </div>`).join('')}</div>`;
+      }
+      addMsg(html, 'bot');
+    } catch(e) {
+      document.getElementById('typing')?.remove();
+      addMsg('Sorry, something went wrong. Please try again.', 'bot');
+    }
+    document.getElementById('send-btn').disabled = false;
+    inp.focus();
+  }
+
+  function quickSend(txt) {
+    document.getElementById('chat-in').value = txt;
+    sendMsg();
+  }
+
+  // Welcome message
+  addMsg(`👋 Hi <strong>${session.username.split(' ')[0]}</strong>! I'm your Library Assistant.<br>
+    Ask me to search books, check your dues, get recommendations, or anything else library-related!`, 'bot');
+</script>
+</body>
+</html>

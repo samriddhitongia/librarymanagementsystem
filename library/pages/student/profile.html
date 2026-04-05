@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — My Profile</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">My Profile</div>
+      <div class="page-sub">Your account and library activity</div>
+    </div>
+    <div id="wrap"></div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('student');
+  buildTopbar(session);
+  buildSidebar('student', 'profile.html');
+
+  async function load() {
+    showLoading('wrap');
+    try {
+      const [student, issues, fineSum] = await Promise.all([
+        Students.getOne(session.sap_id),
+        Issues.getAll({ sap_id: session.sap_id }),
+        Fines.getSummary(session.sap_id),
+      ]);
+      const active   = issues.filter(i => i.status !== 'returned').length;
+      const returned = issues.filter(i => i.status === 'returned').length;
+      const unpaid   = parseFloat(fineSum.unpaid_amount || 0);
+
+      document.getElementById('wrap').innerHTML = `
+        <div class="profile-card">
+          <div class="profile-avatar">${getInitials(student.username)}</div>
+          <div>
+            <div class="profile-name">${student.username}</div>
+            <div class="profile-sap">SAP ID: ${student.sap_id}</div>
+            <div class="profile-tags">
+              <span class="badge badge-blue">${student.department || 'N/A'}</span>
+              <span class="badge badge-gray">Year ${student.year_of_study || '—'}</span>
+              <span class="badge badge-${student.is_active ? 'green' : 'red'}">${student.is_active ? 'Active' : 'Inactive'}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">Personal Details</div>
+            <table style="width:100%;font-size:13px">
+              ${[
+                ['Full Name',   student.username],
+                ['SAP ID',      student.sap_id],
+                ['Email',       student.email || '—'],
+                ['Phone',       student.phone || '—'],
+                ['Date of Birth', fmtDate(student.dob)],
+                ['Department',  student.department || '—'],
+                ['Profile',     student.profile_details || '—'],
+              ].map(([k,v]) => `
+                <tr style="border-bottom:1px solid var(--border)">
+                  <td style="color:var(--text3);padding:8px 0">${k}</td>
+                  <td style="text-align:right;padding:8px 0;font-weight:500">${v}</td>
+                </tr>`).join('')}
+            </table>
+          </div>
+
+          <div>
+            <div class="stat-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
+              <div class="stat-card"><div class="stat-label">Active Issues</div><div class="stat-value blue">${active}</div></div>
+              <div class="stat-card"><div class="stat-label">Total Borrowed</div><div class="stat-value">${issues.length}</div></div>
+              <div class="stat-card"><div class="stat-label">Returned</div><div class="stat-value green">${returned}</div></div>
+              <div class="stat-card"><div class="stat-label">Unpaid Fines</div><div class="stat-value ${unpaid > 0 ? 'red' : 'green'}">₹${unpaid.toFixed(2)}</div></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Quick Links</div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <a href="my-issues.html" class="btn btn-ghost" style="justify-content:flex-start">📖 View Issued Books</a>
+                <a href="requests.html"  class="btn btn-ghost" style="justify-content:flex-start">🔔 My Requests</a>
+                <a href="fines.html"     class="btn btn-ghost" style="justify-content:flex-start">💰 Fine Details</a>
+                <a href="books.html"     class="btn btn-accent" style="justify-content:flex-start">📚 Browse Books</a>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    } catch(err) { showErr('wrap', err.message); }
+  }
+  load();
+</script>
+</body>
+</html>

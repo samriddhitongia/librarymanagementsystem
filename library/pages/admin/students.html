@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Students</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head"><div class="page-title">Registered Users</div><div class="page-sub">Manage student accounts</div></div>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <div class="search-bar" style="flex:1;min-width:200px;margin:0">
+        <span class="search-icon">🔍</span><input id="q" placeholder="Search students…" oninput="debounce()"/>
+      </div>
+      <select class="form-select" id="sf" style="width:auto" onchange="load()">
+        <option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option>
+      </select>
+      <button class="btn btn-accent" onclick="openAdd()">+ Add Student</button>
+    </div>
+    <div id="count" style="font-size:12px;color:var(--text3);margin-bottom:10px"></div>
+    <div id="wrap"></div>
+  </main>
+</div>
+
+<!-- Add/Edit Student Modal -->
+<div class="modal-bg" id="modal-stu">
+  <div class="modal">
+    <div class="modal-title"><span id="modal-title">Add Student</span><button class="modal-close" onclick="closeModal('modal-stu')">✕</button></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">SAP ID *</label><input class="form-input" id="fs-sap" placeholder="500XXXXXX"/></div>
+      <div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" id="fs-name" placeholder="Full name"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="fs-email" type="email" placeholder="email@uni.edu"/></div>
+      <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="fs-phone" placeholder="10-digit number"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Date of Birth * <span style="font-size:10px;color:var(--text3)">(used as password)</span></label><input class="form-input" id="fs-dob" type="date"/></div>
+      <div class="form-group"><label class="form-label">Department</label>
+        <select class="form-select" id="fs-dept">
+          <option>Computer Science</option><option>Information Technology</option>
+          <option>Electronics</option><option>Management</option><option>Mathematics</option><option>Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Year of Study</label>
+        <select class="form-select" id="fs-year"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Profile Details</label><input class="form-input" id="fs-profile" placeholder="e.g. B.Tech CS Year 3"/></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-stu')">Cancel</button>
+      <button class="btn btn-accent" id="save-stu-btn" onclick="saveStudent()">Save Student</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toggle Confirm -->
+<div class="modal-bg" id="modal-toggle">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-title"><span id="toggle-title">Deactivate Student</span><button class="modal-close" onclick="closeModal('modal-toggle')">✕</button></div>
+    <p id="toggle-body" style="color:var(--text2);font-size:14px;line-height:1.6"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-toggle')">Cancel</button>
+      <button class="btn btn-danger" id="toggle-btn" onclick="doToggle()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="../../js/db.js"></script>
+<script>
+  requireAuth('admin');
+  buildTopbar(getSession());
+  buildSidebar('admin', 'students.html');
+  let editingSap=null, togglingSap=null, timer;
+
+  function debounce(){ clearTimeout(timer); timer=setTimeout(load,350); }
+
+  async function load(){
+    showLoading('wrap');
+    try{
+      const q=document.getElementById('q').value;
+      const sf=document.getElementById('sf').value;
+      const students=await Students.getAll(q,sf);
+      document.getElementById('count').textContent=`${students.length} student${students.length!==1?'s':''}`;
+      if(!students.length){document.getElementById('wrap').innerHTML=`<div class="empty-state"><div class="empty-state-icon">👥</div><p>No students found</p></div>`;return;}
+      document.getElementById('wrap').innerHTML=`
+        <div class="table-wrap"><table>
+          <thead><tr><th>SAP ID</th><th>Name</th><th>Department</th><th>Email</th><th>Year</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>${students.map(s=>`
+            <tr>
+              <td class="td-muted">${s.sap_id}</td>
+              <td><strong>${s.username}</strong>${s.profile_details?`<br><span style="font-size:11px;color:var(--text3)">${s.profile_details}</span>`:''}</td>
+              <td>${s.department||'—'}</td>
+              <td class="td-muted">${s.email||'—'}</td>
+              <td>${s.year_of_study||'—'}</td>
+              <td><span class="badge badge-${s.is_active?'green':'red'}">${s.is_active?'Active':'Inactive'}</span></td>
+              <td><span style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm" onclick='openEdit(${JSON.stringify(s)})'>✏️ Edit</button>
+                <button class="btn btn-${s.is_active?'danger':'ghost'} btn-sm" onclick="askToggle('${s.sap_id}','${s.username}',${s.is_active})">${s.is_active?'Deactivate':'Activate'}</button>
+              </span></td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    }catch(err){showErr('wrap',err.message);}
+  }
+
+  function openAdd(){
+    editingSap=null;
+    document.getElementById('modal-title').textContent='Add Student';
+    ['fs-sap','fs-name','fs-email','fs-phone','fs-profile'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('fs-dob').value='';
+    document.getElementById('fs-sap').disabled=false;
+    openModal('modal-stu');
+  }
+  function openEdit(s){
+    editingSap=s.sap_id;
+    document.getElementById('modal-title').textContent='Edit Student';
+    document.getElementById('fs-sap').value=s.sap_id; document.getElementById('fs-sap').disabled=true;
+    document.getElementById('fs-name').value=s.username;
+    document.getElementById('fs-email').value=s.email||''; document.getElementById('fs-phone').value=s.phone||'';
+    const dob=s.dob instanceof Date?s.dob.toISOString().split('T')[0]:String(s.dob).split('T')[0];
+    document.getElementById('fs-dob').value=dob;
+    document.getElementById('fs-dept').value=s.department||'Computer Science';
+    document.getElementById('fs-year').value=s.year_of_study||1;
+    document.getElementById('fs-profile').value=s.profile_details||'';
+    openModal('modal-stu');
+  }
+
+  async function saveStudent(){
+    const sap=document.getElementById('fs-sap').value.trim();
+    const name=document.getElementById('fs-name').value.trim();
+    const dob=document.getElementById('fs-dob').value;
+    if(!sap||!name||!dob){showToast('SAP ID, Name and DOB required','error');return;}
+    const btn=document.getElementById('save-stu-btn'); btn.disabled=true; btn.textContent='Saving…';
+    const data={username:name,email:document.getElementById('fs-email').value||null,phone:document.getElementById('fs-phone').value||null,dob,department:document.getElementById('fs-dept').value,year_of_study:+document.getElementById('fs-year').value,profile_details:document.getElementById('fs-profile').value||null};
+    try{
+      if(editingSap){ await Students.update(editingSap,data); showToast('Student updated','success'); }
+      else           { await Students.add({sap_id:sap,...data}); showToast('Student added','success'); }
+      document.getElementById('fs-sap').disabled=false;
+      closeModal('modal-stu'); load();
+    }catch(err){showToast(err.message,'error');}
+    finally{btn.disabled=false;btn.textContent='Save Student';}
+  }
+
+  function askToggle(sap,name,active){
+    togglingSap=sap;
+    const action=active?'Deactivate':'Activate';
+    document.getElementById('toggle-title').textContent=`${action} Student`;
+    document.getElementById('toggle-body').innerHTML=`${action} account for <strong>${name}</strong> (${sap})?`;
+    document.getElementById('toggle-btn').textContent=action;
+    openModal('modal-toggle');
+  }
+  async function doToggle(){
+    const btn=document.getElementById('toggle-btn'); btn.disabled=true;
+    try{ await Students.toggle(togglingSap); showToast('Student status updated','info'); closeModal('modal-toggle'); load(); }
+    catch(err){showToast(err.message,'error');}
+    finally{btn.disabled=false;}
+  }
+
+  load();
+</script>
+</body></html>

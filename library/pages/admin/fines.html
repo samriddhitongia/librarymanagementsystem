@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Fine Records</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head"><div class="page-title">Fine Records</div><div class="page-sub">Manage and update fine payments</div></div>
+    <div id="stats"></div>
+    <div class="filter-row" id="ff">
+      <button class="filter-chip active" data-s=""       onclick="setF(this)">All</button>
+      <button class="filter-chip"        data-s="unpaid" onclick="setF(this)">Unpaid</button>
+      <button class="filter-chip"        data-s="paid"   onclick="setF(this)">Paid</button>
+      <button class="filter-chip"        data-s="waived" onclick="setF(this)">Waived</button>
+    </div>
+    <div id="wrap"></div>
+  </main>
+</div>
+
+<div class="modal-bg" id="modal-fine">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title">Update Fine <button class="modal-close" onclick="closeModal('modal-fine')">✕</button></div>
+    <div id="fine-detail"></div>
+    <div class="form-group" style="margin-top:16px">
+      <label class="form-label">Update Amount (₹)</label>
+      <input class="form-input" id="fine-amt" type="number" min="0" step="0.5"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Action</label>
+      <select class="form-select" id="fine-action">
+        <option value="paid">Mark as Paid</option>
+        <option value="waived">Waive Fine</option>
+        <option value="update">Update Amount Only</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-fine')">Cancel</button>
+      <button class="btn btn-accent" id="fine-save-btn" onclick="saveFine()">Update Fine</button>
+    </div>
+  </div>
+</div>
+
+<script src="../../js/db.js"></script>
+<script>
+  requireAuth('admin');
+  buildTopbar(getSession());
+  buildSidebar('admin','fines.html');
+  let activeStatus='', editingFine=null;
+
+  function setF(el){ document.querySelectorAll('#ff .filter-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); activeStatus=el.dataset.s; load(); }
+
+  async function load(){
+    showLoading('wrap');
+    try{
+      const fines=await Fines.getAll(activeStatus);
+      const all  =await Fines.getAll();
+      const tot  =all.reduce((a,f)=>a+parseFloat(f.amount),0);
+      const unp  =all.filter(f=>f.paid_status==='unpaid').reduce((a,f)=>a+parseFloat(f.amount),0);
+      const pd   =all.filter(f=>f.paid_status==='paid').reduce((a,f)=>a+parseFloat(f.amount),0);
+      const wv   =all.filter(f=>f.paid_status==='waived').reduce((a,f)=>a+parseFloat(f.amount),0);
+
+      document.getElementById('stats').innerHTML=`
+        <div class="stat-grid" style="margin-bottom:20px">
+          <div class="stat-card"><div class="stat-label">Total Fines</div><div class="stat-value blue">₹${tot.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Unpaid</div><div class="stat-value red">₹${unp.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Collected</div><div class="stat-value green">₹${pd.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Waived</div><div class="stat-value amber">₹${wv.toFixed(2)}</div></div>
+        </div>`;
+
+      if(!fines.length){document.getElementById('wrap').innerHTML=`<div class="empty-state"><div class="empty-state-icon">💳</div><p>No fine records found</p></div>`;return;}
+      document.getElementById('wrap').innerHTML=`
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Student</th><th>Book</th><th>Days Overdue</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>${fines.map(f=>`
+            <tr>
+              <td class="td-muted">#${f.fine_id}</td>
+              <td><strong>${f.student_name}</strong><br><span class="td-muted" style="font-size:11px">${f.sap_id}</span></td>
+              <td>${f.book_title}</td>
+              <td style="color:var(--red);font-weight:600">${f.days_overdue} days</td>
+              <td style="font-weight:700;color:${f.paid_status==='unpaid'?'var(--red)':f.paid_status==='paid'?'var(--green)':'var(--amber)'}">₹${parseFloat(f.amount).toFixed(2)}</td>
+              <td>${badge(f.paid_status)}</td>
+              <td>${f.paid_status==='unpaid'?`
+                <span style="display:flex;gap:6px">
+                  <button class="btn btn-success btn-sm" onclick="quickPay(${f.fine_id})">Paid</button>
+                  <button class="btn btn-ghost btn-sm"   onclick="openEdit(${f.fine_id},${f.amount},'${f.student_name}','${f.book_title}','${f.paid_status}')">Edit</button>
+                  <button class="btn btn-danger btn-sm"  onclick="quickWaive(${f.fine_id})">Waive</button>
+                </span>`:`<button class="btn btn-ghost btn-sm" onclick="openEdit(${f.fine_id},${f.amount},'${f.student_name}','${f.book_title}','${f.paid_status}')">Edit</button>`}
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    }catch(err){showErr('wrap',err.message);}
+  }
+
+  async function quickPay(id){ try{ await Fines.update(id,'paid'); showToast('Fine marked as paid','success'); load(); }catch(err){showToast(err.message,'error');} }
+  async function quickWaive(id){ try{ await Fines.update(id,'waived'); showToast('Fine waived','info'); load(); }catch(err){showToast(err.message,'error');} }
+
+  function openEdit(id,amt,student,book,status){
+    editingFine=id;
+    document.getElementById('fine-detail').innerHTML=`
+      <table style="width:100%;font-size:13px">
+        <tr><td style="color:var(--text3);padding:5px 0">Student</td><td style="text-align:right;font-weight:500">${student}</td></tr>
+        <tr><td style="color:var(--text3);padding:5px 0">Book</td><td style="text-align:right">${book}</td></tr>
+        <tr><td style="color:var(--text3);padding:5px 0">Current Status</td><td style="text-align:right">${badge(status)}</td></tr>
+      </table>`;
+    document.getElementById('fine-amt').value=parseFloat(amt).toFixed(2);
+    openModal('modal-fine');
+  }
+
+  async function saveFine(){
+    const action=document.getElementById('fine-action').value;
+    const amt=+document.getElementById('fine-amt').value;
+    if(isNaN(amt)||amt<0){showToast('Invalid amount','error');return;}
+    const btn=document.getElementById('fine-save-btn'); btn.disabled=true; btn.textContent='Saving…';
+    try{
+      const ps=action==='update'?undefined:action;
+      await Fines.update(editingFine,ps,amt);
+      showToast('Fine updated','success'); closeModal('modal-fine'); load();
+    }catch(err){showToast(err.message,'error');}
+    finally{btn.disabled=false;btn.textContent='Update Fine';}
+  }
+
+  load();
+</script>
+</body></html>

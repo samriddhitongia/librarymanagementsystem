@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Book Requests</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head"><div class="page-title">Book Requests</div><div class="page-sub" id="sub"></div></div>
+    <div class="filter-row" id="rf">
+      <button class="filter-chip active" data-s=""         onclick="setF(this)">All</button>
+      <button class="filter-chip"        data-s="pending"  onclick="setF(this)">Pending</button>
+      <button class="filter-chip"        data-s="approved" onclick="setF(this)">Approved</button>
+      <button class="filter-chip"        data-s="rejected" onclick="setF(this)">Rejected</button>
+    </div>
+    <div id="wrap"></div>
+  </main>
+</div>
+
+<div class="modal-bg" id="modal-resolve">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title">Review Request <button class="modal-close" onclick="closeModal('modal-resolve')">✕</button></div>
+    <div id="resolve-info"></div>
+    <div class="form-group" style="margin-top:14px">
+      <label class="form-label">Remark (optional)</label>
+      <input class="form-input" id="remark" placeholder="Add a note for the student…"/>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost"   onclick="closeModal('modal-resolve')">Cancel</button>
+      <button class="btn btn-success" onclick="doResolve('approve')">✓ Approve</button>
+      <button class="btn btn-danger"  onclick="doResolve('reject')">✕ Reject</button>
+    </div>
+  </div>
+</div>
+
+<script src="../../js/db.js"></script>
+<script>
+  requireAuth('admin');
+  buildTopbar(getSession());
+  buildSidebar('admin','requests.html');
+  let activeStatus='', resolvingId=null;
+
+  function setF(el){ document.querySelectorAll('#rf .filter-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); activeStatus=el.dataset.s; load(); }
+
+  async function load(){
+    showLoading('wrap');
+    try{
+      const reqs=await Requests.getAll(activeStatus);
+      const pending=reqs.filter(r=>r.status==='pending').length;
+      document.getElementById('sub').textContent=pending?`${pending} pending request${pending>1?'s':''} awaiting review`:'No pending requests';
+      if(!reqs.length){document.getElementById('wrap').innerHTML=`<div class="empty-state"><div class="empty-state-icon">📭</div><p>No requests found</p></div>`;return;}
+      document.getElementById('wrap').innerHTML=`
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Student</th><th>Book</th><th>Available</th><th>Requested</th><th>Status</th><th>Remark</th><th>Action</th></tr></thead>
+          <tbody>${reqs.map(r=>`
+            <tr>
+              <td class="td-muted">#${r.request_id}</td>
+              <td><strong>${r.student_name}</strong><br><span class="td-muted" style="font-size:11px">${r.sap_id}</span></td>
+              <td>${r.book_title}</td>
+              <td style="font-weight:600;color:${r.available_copies>0?'var(--green)':'var(--red)'}">${r.available_copies}</td>
+              <td class="td-muted">${fmtDate(r.request_date)}</td>
+              <td>${badge(r.status)}</td>
+              <td class="td-muted">${r.admin_remark||'—'}</td>
+              <td>${r.status==='pending'?`<button class="btn btn-ghost btn-sm" onclick="openResolve(${r.request_id},'${r.student_name}','${r.book_title}',${r.available_copies})">Review</button>`:'—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    }catch(err){showErr('wrap',err.message);}
+  }
+
+  function openResolve(id,student,book,avail){
+    resolvingId=id;
+    document.getElementById('resolve-info').innerHTML=`
+      <table style="width:100%;font-size:13px">
+        <tr><td style="color:var(--text3);padding:5px 0">Student</td><td style="text-align:right;font-weight:500">${student}</td></tr>
+        <tr><td style="color:var(--text3);padding:5px 0">Book</td><td style="text-align:right;font-weight:500">${book}</td></tr>
+        <tr><td style="color:var(--text3);padding:5px 0">Available Copies</td><td style="text-align:right;color:${avail>0?'var(--green)':'var(--red)'};font-weight:600">${avail}</td></tr>
+      </table>`;
+    document.getElementById('remark').value='';
+    openModal('modal-resolve');
+  }
+
+  async function doResolve(action){
+    const remark=document.getElementById('remark').value;
+    try{ await Requests.resolve(resolvingId,action,remark); showToast(`Request ${action==='approve'?'approved':'rejected'}`,'success'); closeModal('modal-resolve'); load(); }
+    catch(err){showToast(err.message,'error');}
+  }
+  load();
+</script>
+</body></html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Book Management</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">Book Management</div>
+      <div class="page-sub">Add, edit or remove books from the catalog</div>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <div class="search-bar" style="flex:1;min-width:200px;margin:0">
+        <span class="search-icon">🔍</span>
+        <input id="q" placeholder="Search books…" oninput="debounce()"/>
+      </div>
+      <select class="form-select" id="tf" style="width:auto" onchange="loadBooks()">
+        <option value="">All Types</option>
+        <option>Computer Science</option><option>Mathematics</option><option>Fiction</option>
+        <option>Science</option><option>Management</option><option>Biography</option><option>Other</option>
+      </select>
+      <button class="btn btn-accent" onclick="openAdd()">+ Add Book</button>
+    </div>
+    <div id="count" style="font-size:12px;color:var(--text3);margin-bottom:10px"></div>
+    <div id="wrap"></div>
+  </main>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-bg" id="modal-book">
+  <div class="modal">
+    <div class="modal-title"><span id="modal-title-text">Add New Book</span><button class="modal-close" onclick="closeModal('modal-book')">✕</button></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Title *</label><input class="form-input" id="f-title" placeholder="Book title"/></div>
+      <div class="form-group"><label class="form-label">Author *</label><input class="form-input" id="f-author" placeholder="Author name"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Type</label>
+        <select class="form-select" id="f-type">
+          <option>Computer Science</option><option>Mathematics</option><option>Fiction</option>
+          <option>Science</option><option>History</option><option>Management</option><option>Biography</option><option>Other</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">ISBN</label><input class="form-input" id="f-isbn" placeholder="978-XXXXXXXXXX"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Total Copies *</label><input class="form-input" id="f-total" type="number" min="1" value="1"/></div>
+      <div class="form-group"><label class="form-label">Available Copies *</label><input class="form-input" id="f-avail" type="number" min="0" value="1"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Publisher</label><input class="form-input" id="f-pub" placeholder="Publisher"/></div>
+      <div class="form-group"><label class="form-label">Year</label><input class="form-input" id="f-year" type="number" placeholder="2024"/></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-book')">Cancel</button>
+      <button class="btn btn-accent" id="save-btn" onclick="saveBook()">Save Book</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirm Modal -->
+<div class="modal-bg" id="modal-del">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-title">Delete Book <button class="modal-close" onclick="closeModal('modal-del')">✕</button></div>
+    <p style="color:var(--text2);font-size:14px;line-height:1.6">Are you sure you want to delete <strong id="del-name"></strong>? This cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-del')">Cancel</button>
+      <button class="btn btn-danger" id="del-btn" onclick="confirmDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('admin');
+  buildTopbar(session);
+  buildSidebar('admin', 'books.html');
+
+  let editingId = null, deletingId = null, searchTimer;
+
+  function debounce() { clearTimeout(searchTimer); searchTimer = setTimeout(loadBooks, 350); }
+
+  async function loadBooks() {
+    showLoading('wrap');
+    try {
+      const q    = document.getElementById('q').value;
+      const type = document.getElementById('tf').value;
+      const books = await Books.getAll(q, type);
+      document.getElementById('count').textContent = `${books.length} book${books.length !== 1 ? 's' : ''}`;
+      if (!books.length) {
+        document.getElementById('wrap').innerHTML = `<div class="empty-state"><div class="empty-state-icon">📚</div><p>No books found</p></div>`;
+        return;
+      }
+      document.getElementById('wrap').innerHTML = `
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Title</th><th>Author</th><th>Type</th><th>Total</th><th>Available</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>${books.map(b => `
+            <tr>
+              <td class="td-muted">${b.book_id}</td>
+              <td><strong>${b.title}</strong>${b.isbn ? `<br><span style="font-size:10px;color:var(--text3)">${b.isbn}</span>` : ''}</td>
+              <td class="td-muted">${b.author}</td>
+              <td><span class="badge badge-gray">${b.type || '—'}</span></td>
+              <td>${b.total_copies}</td>
+              <td style="font-weight:600;color:${b.available_copies > 0 ? 'var(--green)' : 'var(--red)'}">${b.available_copies}</td>
+              <td>${b.available_copies > 0 ? '<span class="badge badge-green">Available</span>' : '<span class="badge badge-red">Unavailable</span>'}</td>
+              <td><span style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm" onclick='openEdit(${JSON.stringify(b)})'>✏️ Edit</button>
+                <button class="btn btn-danger btn-sm" onclick="askDelete(${b.book_id},'${b.title.replace(/'/g, "\\'")}')">🗑</button>
+              </span></td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    } catch(err) { showErr('wrap', err.message); }
+  }
+
+  function openAdd() {
+    editingId = null;
+    document.getElementById('modal-title-text').textContent = 'Add New Book';
+    ['f-title','f-author','f-isbn','f-pub'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f-total').value = 1;
+    document.getElementById('f-avail').value = 1;
+    document.getElementById('f-year').value  = '';
+    document.getElementById('f-type').value  = 'Computer Science';
+    openModal('modal-book');
+  }
+
+  function openEdit(b) {
+    editingId = b.book_id;
+    document.getElementById('modal-title-text').textContent = 'Edit Book';
+    document.getElementById('f-title').value  = b.title;
+    document.getElementById('f-author').value = b.author;
+    document.getElementById('f-isbn').value   = b.isbn  || '';
+    document.getElementById('f-pub').value    = b.publisher || '';
+    document.getElementById('f-total').value  = b.total_copies;
+    document.getElementById('f-avail').value  = b.available_copies;
+    document.getElementById('f-year').value   = b.published_year || '';
+    document.getElementById('f-type').value   = b.type || 'Other';
+    openModal('modal-book');
+  }
+
+  async function saveBook() {
+    const title = document.getElementById('f-title').value.trim();
+    const author= document.getElementById('f-author').value.trim();
+    const total = +document.getElementById('f-total').value;
+    const avail = +document.getElementById('f-avail').value;
+    if (!title || !author)  { showToast('Title and Author required', 'error'); return; }
+    if (avail > total)      { showToast('Available cannot exceed total copies', 'error'); return; }
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const data = {
+      title, author,
+      type:           document.getElementById('f-type').value,
+      isbn:           document.getElementById('f-isbn').value || null,
+      publisher:      document.getElementById('f-pub').value  || null,
+      published_year: +document.getElementById('f-year').value || null,
+      total_copies:   total,
+      available_copies: avail,
+    };
+    try {
+      if (editingId) { await Books.update(editingId, data); showToast('Book updated', 'success'); }
+      else           { await Books.add(data);               showToast('Book added',   'success'); }
+      closeModal('modal-book');
+      loadBooks();
+    } catch(err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.textContent = 'Save Book'; }
+  }
+
+  function askDelete(id, title) {
+    deletingId = id;
+    document.getElementById('del-name').textContent = title;
+    openModal('modal-del');
+  }
+
+  async function confirmDelete() {
+    const btn = document.getElementById('del-btn');
+    btn.disabled = true; btn.textContent = 'Deleting…';
+    try {
+      await Books.delete(deletingId);
+      showToast('Book deleted', 'info');
+      closeModal('modal-del');
+      loadBooks();
+    } catch(err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.textContent = 'Delete'; }
+  }
+
+  loadBooks();
+</script>
+</body>
+</html>

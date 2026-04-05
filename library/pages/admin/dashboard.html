@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>LibraryOS — Admin Dashboard</title><link rel="stylesheet" href="../../css/style.css"/></head>
+<body>
+<div id="topbar" class="topbar"></div>
+<div class="app-layout">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="page-title">Admin Dashboard</div>
+      <div class="page-sub" id="date-sub"></div>
+    </div>
+    <div id="wrap"></div>
+  </main>
+</div>
+<script src="../../js/db.js"></script>
+<script>
+  const session = requireAuth('admin');
+  buildTopbar(session);
+  buildSidebar('admin', 'dashboard.html');
+  document.getElementById('date-sub').textContent = new Date().toLocaleDateString('en-IN',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+
+  async function load() {
+    showLoading('wrap');
+    try {
+      const [stats, overdue, pending] = await Promise.all([
+        Stats.get(),
+        Issues.getAll({ status: 'overdue' }),
+        Requests.getAll('pending'),
+      ]);
+
+      document.getElementById('wrap').innerHTML = `
+        ${overdue.length ? `<div class="alert alert-warn">⚠️ <strong>${overdue.length}</strong> overdue book${overdue.length > 1 ? 's' : ''} need attention.</div>` : ''}
+
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">Total Books</div><div class="stat-value blue">${stats.books.total}</div><div class="stat-sub">${stats.books.available} on shelf</div></div>
+          <div class="stat-card"><div class="stat-label">Active Issues</div><div class="stat-value amber">${stats.issues.issued}</div></div>
+          <div class="stat-card"><div class="stat-label">Overdue</div><div class="stat-value ${stats.issues.overdue > 0 ? 'red' : 'green'}">${stats.issues.overdue}</div></div>
+          <div class="stat-card"><div class="stat-label">Students</div><div class="stat-value">${stats.students.active}</div><div class="stat-sub">of ${stats.students.total}</div></div>
+          <div class="stat-card"><div class="stat-label">Pending Requests</div><div class="stat-value amber">${stats.pending_requests}</div></div>
+          <div class="stat-card"><div class="stat-label">Active Reservations</div><div class="stat-value blue">${stats.active_reservations}</div></div>
+          <div class="stat-card"><div class="stat-label">Unpaid Fines</div><div class="stat-value red">₹${parseFloat(stats.fines.unpaid).toFixed(2)}</div></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">⚠️ Overdue Issues <a href="issue-return.html" class="btn btn-ghost btn-sm">Manage</a></div>
+            ${!overdue.length
+              ? `<div class="empty-state"><div class="empty-state-icon">✅</div><p>No overdue issues!</p></div>`
+              : `<div class="table-wrap"><table>
+                  <thead><tr><th>Student</th><th>Book</th><th>Days Late</th></tr></thead>
+                  <tbody>${overdue.map(i => `
+                    <tr class="row-overdue">
+                      <td><strong>${i.student_name}</strong><br><span class="td-muted" style="font-size:11px">${i.sap_id}</span></td>
+                      <td>${i.book_title}</td>
+                      <td style="color:var(--red);font-weight:700">${i.days_overdue}d</td>
+                    </tr>`).join('')}
+                  </tbody>
+                </table></div>`}
+          </div>
+
+          <div class="card">
+            <div class="card-title">📋 Pending Requests <a href="requests.html" class="btn btn-ghost btn-sm">View All</a></div>
+            ${!pending.length
+              ? `<div class="empty-state"><div class="empty-state-icon">📭</div><p>No pending requests</p></div>`
+              : `<div class="table-wrap"><table>
+                  <thead><tr><th>Student</th><th>Book</th><th>Action</th></tr></thead>
+                  <tbody>${pending.slice(0, 5).map(r => `
+                    <tr>
+                      <td>${r.student_name}</td>
+                      <td>${r.book_title}</td>
+                      <td><span style="display:flex;gap:6px">
+                        <button class="btn btn-success btn-sm" onclick="resolve(${r.request_id},'approve')">✓</button>
+                        <button class="btn btn-danger btn-sm"  onclick="resolve(${r.request_id},'reject')">✕</button>
+                      </span></td>
+                    </tr>`).join('')}
+                  </tbody>
+                </table></div>`}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔗 Quick Actions</div>
+          <div class="btn-row">
+            <a href="books.html"         class="btn btn-accent">+ Add Book</a>
+            <a href="issue-return.html"  class="btn btn-ghost">📤 Issue Book</a>
+            <a href="students.html"      class="btn btn-ghost">+ Add Student</a>
+            <a href="fines.html"         class="btn btn-ghost">💳 Manage Fines</a>
+            <a href="search-issued.html" class="btn btn-ghost">🔍 Search Issued</a>
+            <button class="btn btn-ghost" onclick="markOverdue()">🔄 Mark Overdue</button>
+          </div>
+        </div>`;
+    } catch(err) { showErr('wrap', err.message); }
+  }
+
+  async function resolve(id, action) {
+    try {
+      await Requests.resolve(id, action);
+      showToast(`Request ${action === 'approve' ? 'approved' : 'rejected'}`, 'success');
+      load();
+    } catch(err) { showToast(err.message, 'error'); }
+  }
+
+  async function markOverdue() {
+    try {
+      const r = await Stats.markOverdue();
+      showToast(r.message, 'info');
+      load();
+    } catch(err) { showToast(err.message, 'error'); }
+  }
+
+  load();
+</script>
+</body>
+</html>
